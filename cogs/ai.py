@@ -1,61 +1,41 @@
+import discord
 from discord.ext import commands
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
 
-# Load model and tokenizer globally
-tokenizer = AutoTokenizer.from_pretrained("microsoft/DialoGPT-medium")
-model = AutoModelForCausalLM.from_pretrained("microsoft/DialoGPT-medium")
-
-# Store recent user messages for context, limited to last 3 messages
-user_history = {}
-
-class AIChat(commands.Cog):
+class AI(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        # Load DistilGPT-2 tokenizer and model
+        self.tokenizer = AutoTokenizer.from_pretrained("distilgpt2")
+        self.model = AutoModelForCausalLM.from_pretrained("distilgpt2")
 
-    @commands.command()
-    async def chat(self, ctx, *, prompt):
-        """
-        Chat with AI. Uses only the last 3 messages for context.
-        Usage: !chat Hello AI
-        """
-        user_id = ctx.author.id
+    @commands.command(name="ai")
+    async def ai_chat(self, ctx, *, prompt: str):
+        """Chat with Aubrey using local AI (DistilGPT-2)."""
+        await ctx.send("Thinking... 🤔")
 
-        # Initialize history
-        if user_id not in user_history:
-            user_history[user_id] = []
+        try:
+            # Encode the prompt
+            inputs = self.tokenizer.encode(prompt + self.tokenizer.eos_token, return_tensors="pt")
+            # Generate a response
+            outputs = self.model.generate(
+                inputs,
+                max_length=150,
+                pad_token_id=self.tokenizer.eos_token_id,
+                do_sample=True,
+                top_k=50,
+                top_p=0.95,
+                temperature=0.8
+            )
+            # Decode and clean up response
+            reply = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+            # Remove the prompt from the reply
+            reply = reply[len(prompt):].strip()
+            await ctx.send(reply)
 
-        # Append new user message
-        user_history[user_id].append(prompt)
-
-        # Keep only last 3 messages
-        recent_messages = user_history[user_id][-3:]
-
-        # Prepare model input: only last message (or concatenate short context)
-        input_text = " ".join(recent_messages[-1:])
-
-        # Tokenize and generate response
-        inputs = tokenizer.encode(input_text + tokenizer.eos_token, return_tensors="pt")
-        outputs = model.generate(
-            max_length=150,
-            pad_token_id=tokenizer.eos_token_id,
-            do_sample=True,
-            top_p=0.9,
-            top_k=50
-        )
-        answer = tokenizer.decode(outputs[0], skip_special_tokens=True)
-
-        await ctx.send(answer)
-
-    @commands.command()
-    async def reset(self, ctx):
-        """
-        Clear your AI conversation memory.
-        Usage: !reset
-        """
-        user_id = ctx.author.id
-        user_history[user_id] = []
-        await ctx.send("Your AI conversation memory has been cleared.")
+        except Exception as e:
+            await ctx.send(f"⚠️ Error: {e}")
 
 async def setup(bot):
-    await bot.add_cog(AIChat(bot))
+    await bot.add_cog(AI(bot))
